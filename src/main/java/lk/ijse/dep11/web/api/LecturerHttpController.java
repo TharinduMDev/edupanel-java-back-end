@@ -1,14 +1,19 @@
 package lk.ijse.dep11.web.api;
 
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.Bucket;
+import com.google.cloud.storage.Storage;
+import lk.ijse.dep11.web.TO.reponse.LecturerResTO;
 import lk.ijse.dep11.web.TO.request.LecturerRequestTO;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import javax.sql.DataSource;
 import javax.validation.Valid;
+import java.io.IOException;
 import java.sql.*;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api/v1/lecturers")
@@ -17,9 +22,14 @@ public class LecturerHttpController {
 
     @Autowired
     private DataSource pool;
+
+    @Autowired
+    private Bucket bucket;
+
+    private LecturerRequestTO lecturerRequestTO;
     @ResponseStatus(HttpStatus.CREATED)
     @PostMapping(consumes = "multipart/form-data",produces = "application/json")
-    public void creatNewLecturer(@ModelAttribute @Valid LecturerRequestTO lecturer){       //to work this we should register StandardServletMultipartResolver in the WebAppConfig
+    public LecturerResTO creatNewLecturer(@ModelAttribute @Valid LecturerRequestTO lecturer){       //to work this we should register StandardServletMultipartResolver in the WebAppConfig
         try (Connection connection = pool.getConnection()) {
             connection.setAutoCommit(false);
             try {
@@ -56,18 +66,28 @@ public class LecturerHttpController {
                 stmUpdateFullTime.setInt(2,rank);
                 stmUpdateFullTime.executeUpdate();
 
+                String pictureUrl = null;
+                if(lecturer.getPicture() != null && !lecturer.getPicture().isEmpty()){
+                    Blob blob = bucket.create(picture, lecturer.getPicture().getInputStream(), lecturer.getPicture().getContentType());
+                    pictureUrl = blob.signUrl(1, TimeUnit.DAYS, Storage.SignUrlOption.withV4Signature()).toString();
+
+                }
+
                 connection.commit();
+                return new LecturerResTO(lecturerId,lecturer.getName(),lecturer.getDesignation(),lecturer.getQualification(),lecturer.getType(),pictureUrl,lecturer.getLinkedin());
             }catch (Throwable t){
                 connection.rollback();
+                throw t;
             }finally {
                 connection.setAutoCommit(true);
             }
 
 
 
-        } catch (SQLException e) {
+        } catch (SQLException | IOException e) {
             throw new RuntimeException(e);
         }
+        return null;
     }
     @PatchMapping("/{lecturer-id}")
     public void updateLecturerDetail(){
